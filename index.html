@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>نظام الكاشير وطباعة الفواتير المحلي</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Font: Tajawal -->
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Tajawal', sans-serif;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+
+        /* Fixed Print CSS Rules */
+        @media print {
+            @page {
+                size: 80mm auto;
+                margin: 0;
+            }
+            body {
+                background: #ffffff !important;
+                color: #000000 !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+            header, main, #receipt-modal, #settings-modal, #quick-products-modal, #toast {
+                display: none !important;
+            }
+            #printable-area-wrapper {
+                display: block !important;
+                position: absolute !important;
+                left: 0 !important;
+                top: 0 !important;
+                width: 76mm !important;
+                margin: 0 auto !important;
+                padding: 2mm !important;
+                background: #ffffff !important;
+                color: #000000 !important;
+                font-family: monospace, sans-serif !important;
+                font-size: 11px !important;
+            }
+            #printable-area-wrapper * {
+                color: #000000 !important;
+            }
+        }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen flex flex-col justify-between">
+
+    <!-- Header / Navbar -->
+    <header class="bg-indigo-700 text-white shadow-md no-print">
+        <div class="max-w-7xl mx-auto px-3 py-2.5 flex flex-wrap justify-between items-center gap-2">
+            <div class="flex items-center space-x-2 space-x-reverse">
+                <i class="fa-solid font-bold fa-cash-register text-xl text-amber-300"></i>
+                <div>
+                    <h1 class="text-sm font-bold leading-tight truncate max-w-[150px]" id="header-store-name">نظام الكاشير</h1>
+                    <p class="text-[10px] text-indigo-200">الطباعة السريعة</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center flex-wrap gap-1.5">
+                <!-- شارة رقم الدور وزر الريستارت -->
+                <div class="bg-indigo-900/90 px-2 py-1 rounded-md border border-indigo-500/30 flex items-center gap-1.5 text-[11px]">
+                    <span>الدور: <strong id="current-queue-badge" class="text-amber-300 font-bold">#001</strong></span>
+                    <button onclick="resetQueueNumber()" class="text-indigo-200 hover:text-white bg-indigo-700 hover:bg-indigo-600 p-0.5 px-1 rounded transition text-[10px]" title="إعادة ضبط الدور">
+                        <i class="fa-solid fa-rotate-left"></i>
+                    </button>
+                </div>
+
+                <button onclick="switchTab('pos')" id="tab-pos-btn" class="px-2.5 py-1.5 rounded-md bg-indigo-950 text-white font-medium transition flex items-center gap-1 text-xs">
+                    <i class="fa-solid fa-calculator"></i> البيع
+                </button>
+                <button onclick="switchTab('history')" id="tab-history-btn" class="px-2.5 py-1.5 rounded-md bg-indigo-600 text-indigo-100 font-medium transition flex items-center gap-1 text-xs">
+                    <i class="fa-solid fa-receipt"></i> السجل (<span id="history-count">0</span>)
+                </button>
+                <button onclick="openSettingsModal()" class="p-1.5 rounded-md bg-indigo-600 text-indigo-100 transition" title="الإعدادات">
+                    <i class="fa-solid fa-gear text-sm"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="max-w-7xl w-full mx-auto p-2.5 md:p-4 flex-grow no-print">
+        
+        <!-- POS View -->
+        <div id="pos-view" class="grid grid-cols-1 lg:grid-cols-12 gap-3">
+            
+            <!-- Right Column: Products & Quick Selection -->
+            <div class="lg:col-span-7 flex flex-col gap-3">
+                
+                <!-- Add Product / Quick Entry Card -->
+                <div class="bg-white p-3 rounded-lg shadow-sm border border-slate-200">
+                    <h2 class="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+                        <i class="fa-solid fa-plus-circle text-indigo-600"></i> إضافة صنف يدوي
+                    </h2>
+                    <form id="add-item-form" onsubmit="handleAddItem(event)" class="grid grid-cols-12 gap-1.5">
+                        <div class="col-span-5">
+                            <input type="text" id="item-name" placeholder="اسم المنتج" required class="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                        </div>
+                        <div class="col-span-3">
+                            <input type="number" step="0.01" min="0" id="item-price" placeholder="السعر" required class="w-full px-2 py-1.5 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                        </div>
+                        <div class="col-span-2">
+                            <input type="number" min="1" id="item-qty" value="1" placeholder="الكمية" required class="w-full px-2 py-1.5 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                        </div>
+                        <div class="col-span-2">
+                            <button type="submit" class="w-full bg-indigo-600 text-white py-1.5 rounded-md hover:bg-indigo-700 transition font-medium text-xs flex items-center justify-center gap-1">
+                                <i class="fa-solid fa-cart-plus"></i>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Quick Buttons / Fast Products -->
+                <div class="bg-white p-3 rounded-lg shadow-sm border border-slate-200 flex-grow">
+                    <div class="flex justify-between items-center mb-2">
+                        <h2 class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                            <i class="fa-solid fa-bolt text-amber-500"></i> الأزرار السريعة
+                        </h2>
+                        <button onclick="openQuickProductModal()" class="text-[11px] text-indigo-600 font-semibold flex items-center gap-1">
+                            <i class="fa-solid fa-pen"></i> تعديل
+                        </button>
+                    </div>
+
+                    <!-- Buttons Container -->
+                    <div id="quick-products-grid" class="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[220px] overflow-y-auto p-0.5">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Left Column: Current Cart & Checkout -->
+            <div class="lg:col-span-5 flex flex-col gap-3">
+                
+                <div class="bg-white p-3 rounded-lg shadow-sm border border-slate-200 flex flex-col justify-between">
+                    <div>
+                        <!-- Customer Info Form Bar -->
+                        <div class="mb-3 pb-2 border-b border-slate-100">
+                            <div class="flex justify-between items-center mb-1.5">
+                                <span class="text-[11px] font-bold text-slate-500">بيانات الزبون (اختياري)</span>
+                                <button type="button" onclick="clearCart()" class="text-[11px] text-red-500 hover:text-red-700 font-medium">
+                                    <i class="fa-solid fa-trash-can"></i> تفريغ السلة
+                                </button>
+                            </div>
+                            <div class="grid grid-cols-2 gap-1.5">
+                                <input type="text" id="customer-name" placeholder="اسم الزبون" class="w-full px-2.5 py-1 text-xs border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                                <input type="text" id="customer-phone" placeholder="رقم الهاتف" class="w-full px-2.5 py-1 text-xs border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                            </div>
+                        </div>
+
+                        <!-- Current Order Items Table -->
+                        <div class="overflow-y-auto max-h-[180px] mb-3">
+                            <table class="w-full text-right text-xs">
+                                <thead class="bg-slate-50 text-slate-600 sticky top-0">
+                                    <tr>
+                                        <th class="p-1.5 rounded-r-md">الصنف</th>
+                                        <th class="p-1.5 text-center">الكمية</th>
+                                        <th class="p-1.5 text-center">السعر</th>
+                                        <th class="p-1.5 text-center">المجموع</th>
+                                        <th class="p-1.5 rounded-l-md text-center">إجراء</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="cart-table-body" class="divide-y divide-slate-100">
+                                    <!-- Cart Items dynamically inserted here -->
+                                </tbody>
+                            </table>
+                            
+                            <div id="empty-cart-msg" class="text-center py-6 text-slate-400">
+                                <i class="fa-solid fa-basket-shopping text-2xl mb-1 text-slate-300"></i>
+                                <p class="text-[11px]">السلة فارغة. أضف منتجات للبدء</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Calculation & Payment Summary -->
+                    <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-200 space-y-2">
+                        
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="text-slate-600">المجموع الفرعي:</span>
+                            <span id="summary-subtotal" class="font-bold">0.00 د.أ</span>
+                        </div>
+
+                        <!-- Discount Row -->
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="text-slate-600">الخصم (مبلغ ثابت):</span>
+                            <div class="w-20">
+                                <input type="number" id="discount-input" min="0" value="0" step="0.5" oninput="calculateTotals()" class="w-full px-1.5 py-0.5 text-xs border border-slate-300 rounded text-center focus:ring-1 focus:ring-indigo-500">
+                            </div>
+                        </div>
+
+                        <!-- Payment Method -->
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="text-slate-600">طريقة الدفع:</span>
+                            <select id="payment-method" class="px-2 py-0.5 text-xs border border-slate-300 rounded focus:ring-1 focus:ring-indigo-500 bg-white">
+                                <option value="كاش">نقداً (كاش)</option>
+                                <option value="بطاقة">بطاقة صراف</option>
+                                <option value="تحويل">تحويل / محفظة</option>
+                            </select>
+                        </div>
+
+                        <hr class="border-slate-200">
+
+                        <!-- Grand Total -->
+                        <div class="flex justify-between items-center text-sm font-extrabold text-indigo-900">
+                            <span>الإجمالي النهائي:</span>
+                            <span id="summary-grand-total" class="text-base text-indigo-600">0.00 د.أ</span>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="grid grid-cols-2 gap-1.5 pt-1">
+                            <button onclick="processSale(true)" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded-md transition shadow flex items-center justify-center gap-1 text-xs">
+                                <i class="fa-solid fa-eye"></i> معاينة وطباعة
+                            </button>
+                            <button onclick="processSale(false)" class="w-full bg-slate-700 hover:bg-slate-800 text-white font-bold py-2 rounded-md transition shadow flex items-center justify-center gap-1 text-xs">
+                                <i class="fa-solid fa-floppy-disk"></i> حفظ فقط
+                            </button>
+                        </div>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+        </div>
+
+        <!-- Sales History View (Hidden by default) -->
+        <div id="history-view" class="hidden bg-white p-3 md:p-6 rounded-xl shadow-sm border border-slate-200">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-2 mb-4">
+                <div>
+                    <h2 class="text-sm font-bold text-slate-800">سجل المبيعات</h2>
+                    <p class="text-[11px] text-slate-500">استعرض الفواتير السابقة وطبعها</p>
+                </div>
+                <div class="flex flex-wrap items-center gap-2 w-full md:w-auto justify-between">
+                    <div class="bg-indigo-50 px-3 py-1.5 rounded-md border border-indigo-100 text-indigo-800 text-xs">
+                        <span>الإجمالي: </span>
+                        <strong id="history-total-sum" class="text-xs">0.00 د.أ</strong>
+                    </div>
+                    <button onclick="clearAllHistory()" class="px-2.5 py-1.5 bg-red-50 text-red-600 rounded-md text-xs font-semibold">
+                        <i class="fa-solid fa-trash"></i> مسح السجلات
+                    </button>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-right text-xs">
+                    <thead class="bg-slate-100 text-slate-700">
+                        <tr>
+                            <th class="p-2">الدور</th>
+                            <th class="p-2">الفاتورة</th>
+                            <th class="p-2">الوقت</th>
+                            <th class="p-2">الزبون</th>
+                            <th class="p-2">الإجمالي</th>
+                            <th class="p-2 text-center">إجراء</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-table-body" class="divide-y divide-slate-100">
+                        <!-- Dynamically filled -->
+                    </tbody>
+                </table>
+                <div id="empty-history-msg" class="text-center py-8 text-slate-400">
+                    <i class="fa-solid fa-receipt text-3xl mb-1 text-slate-300"></i>
+                    <p class="text-xs">لا توجد فواتير مسجلة بعد.</p>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Global Notification Toast -->
+    <div id="toast" class="fixed bottom-3 left-3 z-50 bg-slate-900 text-white px-3 py-2 rounded-md shadow-lg flex items-center gap-2 transition-opacity opacity-0 pointer-events-none duration-300 text-xs">
+        <i id="toast-icon" class="fa-solid fa-circle-check text-emerald-400"></i>
+        <span id="toast-message">تمت العملية بنجاح</span>
+    </div>
+
+    <!-- Receipt Preview & Print Modal -->
+    <div id="receipt-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center hidden no-print p-2">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm p-3 m-auto flex flex-col max-h-[95vh]">
+            <div class="flex justify-between items-center mb-2 pb-1 border-b border-slate-100">
+                <h3 class="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <i class="fa-solid fa-receipt text-indigo-600"></i> معاينة الفاتورة
+                </h3>
+                <button onclick="closeReceiptModal()" class="text-slate-400 hover:text-slate-600">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+            
+            <div class="overflow-y-auto flex-grow p-2 bg-slate-100 rounded-md border border-slate-200 flex justify-center mb-3">
+                <div id="receipt-paper" class="bg-white text-black p-3 rounded shadow w-[260px] font-mono text-[11px] leading-tight border border-slate-300">
+                    <div class="text-center border-b border-dashed border-black pb-1.5 mb-1.5">
+                        <h2 id="receipt-store-name" class="text-sm font-bold text-black m-0 uppercase">اسم المحل</h2>
+                        <p id="receipt-store-sub" class="text-[9px] text-black font-semibold mt-0.5">عنوان المحل - الهاتف</p>
+                        <div class="mt-1.5 py-0.5 bg-black text-white text-[10px] font-bold rounded-sm">فاتورة مبيعات</div>
+                    </div>
+
+                    <!-- Queue Ticket Box -->
+                    <div class="border border-black rounded p-1.5 text-center my-1.5 bg-slate-50">
+                        <div class="text-[9px] font-bold text-gray-700">رقم الدور (الانتظار)</div>
+                        <div id="receipt-queue-num" class="text-xl font-black text-black">#001</div>
+                    </div>
+
+                    <div class="text-[10px] border-b border-dashed border-black pb-1.5 mb-1.5 space-y-0.5">
+                        <div class="flex justify-between">
+                            <span>رقم الفاتورة:</span>
+                            <strong id="receipt-id">#0000</strong>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>التاريخ:</span>
+                            <span id="receipt-date">--/--/----</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>الزبون:</span>
+                            <span id="receipt-customer">زبون نقدي</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>الهاتف:</span>
+                            <span id="receipt-phone">-</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>الدفع:</span>
+                            <span id="receipt-payment">كاش</span>
+                        </div>
+                    </div>
+
+                    <table class="w-full text-right border-collapse text-[10px] mb-1.5">
+                        <thead>
+                            <tr class="border-y border-black font-bold">
+                                <th class="py-0.5 text-right">المادة</th>
+                                <th class="py-0.5 text-center">العدد</th>
+                                <th class="py-0.5 text-center">السعر</th>
+                                <th class="py-0.5 text-left">المجموع</th>
+                            </tr>
+                        </thead>
+                        <tbody id="receipt-items-body" class="divide-y divide-gray-200">
+                            <!-- Dynamic Items -->
+                        </tbody>
+                    </table>
+
+                    <div class="border-t border-dashed border-black pt-1.5 text-[10px] space-y-0.5">
+                        <div class="flex justify-between">
+                            <span>المجموع الفرعي:</span>
+                            <span id="receipt-subtotal">0.00</span>
+                        </div>
+                        <div id="receipt-discount-row" class="flex justify-between">
+                            <span>الخصم:</span>
+                            <span id="receipt-discount">0.00</span>
+                        </div>
+                        <div class="flex justify-between font-extrabold text-xs border-t border-black pt-1 mt-0.5 text-black">
+                            <span>الإجمالي النهائي:</span>
+                            <span id="receipt-grandtotal">0.00</span>
+                        </div>
+                    </div>
+
+                    <div class="text-center mt-2 border-t border-dashed border-black pt-1.5 text-[9px] font-bold text-black">
+                        <p id="receipt-footer-msg" class="m-0">شكراً لزيارتكم!</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex justify-end gap-1.5">
+                <button type="button" onclick="closeReceiptModal()" class="px-3 py-1.5 bg-slate-200 text-slate-700 rounded-md text-xs font-semibold">
+                    إغلاق
+                </button>
+                <button type="button" onclick="triggerDirectPrint()" class="px-4 py-1.5 bg-emerald-600 text-white rounded-md text-xs font-bold shadow flex items-center gap-1">
+                    <i class="fa-solid fa-print"></i> طباعة الآن
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dedicated Off-screen Wrapper for Clean Window Printing -->
+    <div id="printable-area-wrapper" class="hidden"></div>
+
+    <!-- Modal 1: Store Settings -->
+    <div id="settings-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center hidden no-print p-3">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-sm p-4 m-auto">
+            <div class="flex justify-between items-center mb-3">
+                <h3 class="text-sm font-bold text-slate-800">إعدادات المحل</h3>
+                <button onclick="closeSettingsModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-base"></i></button>
+            </div>
+            <form onsubmit="saveSettings(event)" class="space-y-2.5">
+                <div>
+                    <label class="block text-[11px] font-semibold text-slate-600 mb-0.5">اسم المحل</label>
+                    <input type="text" id="setting-store-name" required class="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-md">
+                </div>
+                <div>
+                    <label class="block text-[11px] font-semibold text-slate-600 mb-0.5">العنوان / الهاتف</label>
+                    <input type="text" id="setting-store-sub" required class="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-md">
+                </div>
+                <div>
+                    <label class="block text-[11px] font-semibold text-slate-600 mb-0.5">العملة</label>
+                    <input type="text" id="setting-currency" required class="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-md">
+                </div>
+                <div>
+                    <label class="block text-[11px] font-semibold text-slate-600 mb-0.5">ملاحظة التذييل</label>
+                    <input type="text" id="setting-footer-msg" required class="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-md">
+                </div>
+
+                <div class="pt-2 border-t border-slate-100 flex justify-between items-center">
+                    <span class="text-[11px] font-semibold text-slate-600">إعادة ضبط الدور:</span>
+                    <button type="button" onclick="resetQueueNumber()" class="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded text-[11px] font-bold">
+                        <i class="fa-solid fa-rotate-left"></i> ريستارت (#001)
+                    </button>
+                </div>
+
+                <div class="pt-2 flex justify-end gap-1.5">
+                    <button type="button" onclick="closeSettingsModal()" class="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-md text-xs">إلغاء</button>
+                    <button type="submit" class="px-3 py-1.5 bg-indigo-600 text-white rounded-md text-xs">حفظ</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal 2: Quick Products Management -->
+    <div id="quick-products-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center hidden no-print p-3">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-md p-4 m-auto flex flex-col max-h-[85vh]">
+            <div class="flex justify-between items-center mb-3">
+                <h3 class="text-sm font-bold text-slate-800">إدارة الأزرار السريعة</h3>
+                <button onclick="closeQuickProductModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-base"></i></button>
+            </div>
+            
+            <form onsubmit="addQuickProduct(event)" class="grid grid-cols-12 gap-1.5 mb-3 bg-slate-50 p-2 rounded-md border border-slate-200">
+                <div class="col-span-6">
+                    <input type="text" id="qp-name" placeholder="اسم المنتج" required class="w-full px-2 py-1 text-xs border border-slate-300 rounded">
+                </div>
+                <div class="col-span-4">
+                    <input type="number" step="0.01" min="0" id="qp-price" placeholder="السعر" required class="w-full px-2 py-1 text-xs border border-slate-300 rounded">
+                </div>
+                <div class="col-span-2">
+                    <button type="submit" class="w-full bg-emerald-600 text-white py-1 rounded text-xs font-bold">إضافة</button>
+                </div>
+            </form>
+
+            <div class="overflow-y-auto flex-grow">
+                <table class="w-full text-right text-xs">
+                    <thead class="bg-slate-100 text-slate-600">
+                        <tr>
+                            <th class="p-1.5">المنتج</th>
+                            <th class="p-1.5">السعر</th>
+                            <th class="p-1.5 text-center">حذف</th>
+                        </tr>
+                    </thead>
+                    <tbody id="quick-products-table-body" class="divide-y divide-slate-100">
+                        <!-- Dynamic list -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let cart = [];
+        let settings = {
+            storeName: "سوبرماركت الخير",
+            storeSub: "عمان | هاتف: 0790000000",
+            currency: "د.أ",
+            footerMsg: "شكراً لزيارتكم!"
+        };
+        let quickProducts = [
+            { id: 1, name: "خبز كبير", price: 0.50 },
+            { id: 2, name: "ماء 1.5 لتر", price: 0.35 },
+            { id: 3, name: "بيبسي علبة", price: 0.50 },
+            { id: 4, name: "شيبس عائلي", price: 1.00 },
+            { id: 5, name: "حليب 1 لتر", price: 1.10 },
+            { id: 6, name: "قهوة وسط", price: 1.50 }
+        ];
+        let historySales = [];
+        let currentQueueNumber = 1;
+
+        window.onload = function() {
+            loadFromLocalStorage();
+            updateSettingsUI();
+            updateQueueBadge();
+            renderQuickProducts();
+            renderCart();
+            updateHistoryUI();
+        };
+
+        function saveToLocalStorage() {
+            localStorage.setItem('pos_settings', JSON.stringify(settings));
+            localStorage.setItem('pos_quick_products', JSON.stringify(quickProducts));
+            localStorage.setItem('pos_history', JSON.stringify(historySales));
+            localStorage.setItem('pos_queue_num', currentQueueNumber);
+        }
+
+        function loadFromLocalStorage() {
+            const savedSettings = localStorage.getItem('pos_settings');
+            const savedQuick = localStorage.getItem('pos_quick_products');
+            const savedHistory = localStorage.getItem('pos_history');
+            const savedQueue = localStorage.getItem('pos_queue_num');
+
+            if (savedSettings) settings = JSON.parse(savedSettings);
+            if (savedQuick) quickProducts = JSON.parse(savedQuick);
+            if (savedHistory) historySales = JSON.parse(savedHistory);
+            if (savedQueue) currentQueueNumber = parseInt(savedQueue) || 1;
+        }
+
+        function resetQueueNumber() {
+            if (confirm("هل تريد إعادة ضبط عداد رقم الدور إلى #001؟")) {
+                currentQueueNumber = 1;
+                saveToLocalStorage();
+                updateQueueBadge();
+                showToast("تمت إعادة ضبط الدور إلى #001");
+            }
+        }
+
+        function updateQueueBadge() {
+            const badge = document.getElementById('current-queue-badge');
+            if(badge) {
+                badge.innerText = '#' + String(currentQueueNumber).padStart(3, '0');
+            }
+        }
+
+        function handleAddItem(e) {
+            e.preventDefault();
+            const nameInput = document.getElementById('item-name');
+            const priceInput = document.getElementById('item-price');
+            const qtyInput = document.getElementById('item-qty');
+
+            const name = nameInput.value.trim();
+            const price = parseFloat(priceInput.value);
+            const qty = parseInt(qtyInput.value) || 1;
+
+            if (name && !isNaN(price) && price >= 0 && qty > 0) {
+                addToCart(name, price, qty);
+                nameInput.value = '';
+                priceInput.value = '';
+                qtyInput.value = '1';
+                nameInput.focus();
+            }
+        }
+
+        function addToCart(name, price, qty = 1) {
+            const existingIndex = cart.findIndex(item => item.name === name && item.price === price);
+            if (existingIndex > -1) {
+                cart[existingIndex].qty += qty;
+            } else {
+                cart.push({
+                    id: Date.now() + Math.random(),
+                    name: name,
+                    price: parseFloat(price),
+                    qty: parseInt(qty)
+                });
+            }
+            renderCart();
+            showToast(`تمت إضافة (${name})`);
+        }
+
+        function updateCartQty(id, delta) {
+            const item = cart.find(i => i.id === id);
+            if (item) {
+                item.qty += delta;
+                if (item.qty <= 0) {
+                    removeFromCart(id);
+                } else {
+                    renderCart();
+                }
+            }
+        }
+
+        function removeFromCart(id) {
+            cart = cart.filter(i => i.id !== id);
+            renderCart();
+        }
+
+        function clearCart() {
+            if(cart.length === 0) return;
+            cart = [];
+            document.getElementById('customer-name').value = '';
+            document.getElementById('customer-phone').value = '';
+            document.getElementById('discount-input').value = '0';
+            renderCart();
+            showToast("تم تفريغ السلة");
+        }
+
+        function renderCart() {
+            const tbody = document.getElementById('cart-table-body');
+            const emptyMsg = document.getElementById('empty-cart-msg');
+            tbody.innerHTML = '';
+
+            if (cart.length === 0) {
+                emptyMsg.classList.remove('hidden');
+            } else {
+                emptyMsg.classList.add('hidden');
+                cart.forEach(item => {
+                    const total = item.price * item.qty;
+                    const tr = document.createElement('tr');
+                    tr.className = "border-b border-slate-100";
+                    tr.innerHTML = `
+                        <td class="p-1.5 font-medium text-slate-800 truncate max-w-[80px]">${item.name}</td>
+                        <td class="p-1.5 text-center">
+                            <div class="inline-flex items-center border border-slate-200 rounded bg-white">
+                                <button onclick="updateCartQty(${item.id}, -1)" class="px-1 py-0.2 text-slate-600">-</button>
+                                <span class="px-1.5 font-bold">${item.qty}</span>
+                                <button onclick="updateCartQty(${item.id}, 1)" class="px-1 py-0.2 text-slate-600">+</button>
+                            </div>
+                        </td>
+                        <td class="p-1.5 text-center">${item.price.toFixed(2)}</td>
+                        <td class="p-1.5 text-center font-semibold text-slate-700">${total.toFixed(2)}</td>
+                        <td class="p-1.5 text-center">
+                            <button onclick="removeFromCart(${item.id})" class="text-red-500 hover:text-red-700">
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+            calculateTotals();
+        }
+
+        function calculateTotals() {
+            const subtotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+            const discountInput = parseFloat(document.getElementById('discount-input').value) || 0;
+            const grandTotal = Math.max(0, subtotal - discountInput);
+
+            document.getElementById('summary-subtotal').innerText = `${subtotal.toFixed(2)} ${settings.currency}`;
+            document.getElementById('summary-grand-total').innerText = `${grandTotal.toFixed(2)} ${settings.currency}`;
+        }
+
+        function renderQuickProducts() {
+            const container = document.getElementById('quick-products-grid');
+            container.innerHTML = '';
+            quickProducts.forEach(prod => {
+                const btn = document.createElement('button');
+                btn.onclick = () => addToCart(prod.name, prod.price, 1);
+                btn.className = "p-2 bg-indigo-50 border border-indigo-100 rounded-lg text-right hover:bg-indigo-100 transition flex flex-col justify-between group h-14 shadow-sm";
+                btn.innerHTML = `
+                    <span class="font-bold text-[11px] text-indigo-950 truncate">${prod.name}</span>
+                    <span class="text-[10px] font-semibold text-indigo-600 bg-white px-1.5 py-0.2 rounded w-fit">${prod.price.toFixed(2)} ${settings.currency}</span>
+                `;
+                container.appendChild(btn);
+            });
+        }
+
+        function processSale(shouldPreview = true) {
+            if (cart.length === 0) {
+                showToast("السلة فارغة!", true);
+                return;
+            }
+
+            const subtotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+            const discount = parseFloat(document.getElementById('discount-input').value) || 0;
+            const grandTotal = Math.max(0, subtotal - discount);
+            const customerName = document.getElementById('customer-name').value.trim() || 'زبون نقدي';
+            const customerPhone = document.getElementById('customer-phone').value.trim() || '-';
+            const paymentMethod = document.getElementById('payment-method').value;
+
+            const saleData = {
+                id: 'INV-' + Math.floor(1000 + Math.random() * 9000),
+                queueNo: String(currentQueueNumber).padStart(3, '0'),
+                date: new Date().toLocaleTimeString('ar-EG', {hour: '2-digit', minute:'2-digit'}),
+                customer: customerName,
+                phone: customerPhone,
+                paymentMethod: paymentMethod,
+                items: [...cart],
+                subtotal: subtotal,
+                discount: discount,
+                grandTotal: grandTotal
+            };
+
+            currentQueueNumber++;
+            if (currentQueueNumber > 999) currentQueueNumber = 1;
+            updateQueueBadge();
+
+            historySales.unshift(saleData);
+            saveToLocalStorage();
+            updateHistoryUI();
+
+            if (shouldPreview) {
+                openReceiptPreview(saleData);
+            } else {
+                showToast(`تم الحفظ - دور #${saleData.queueNo}`);
+                clearCart();
+            }
+        }
+
+        function openReceiptPreview(sale) {
+            document.getElementById('receipt-store-name').innerText = settings.storeName;
+            document.getElementById('receipt-store-sub').innerText = settings.storeSub;
+            document.getElementById('receipt-footer-msg').innerText = settings.footerMsg;
+
+            document.getElementById('receipt-id').innerText = sale.id;
+            document.getElementById('receipt-queue-num').innerText = '#' + (sale.queueNo || '001');
+            document.getElementById('receipt-date').innerText = sale.date;
+            document.getElementById('receipt-customer').innerText = sale.customer;
+            document.getElementById('receipt-phone').innerText = sale.phone;
+            document.getElementById('receipt-payment').innerText = sale.paymentMethod;
+
+            const itemsTbody = document.getElementById('receipt-items-body');
+            itemsTbody.innerHTML = '';
+            sale.items.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.className = "border-b border-gray-100";
+                tr.innerHTML = `
+                    <td class="py-0.5 text-right text-black font-medium">${item.name}</td>
+                    <td class="py-0.5 text-center text-black">${item.qty}</td>
+                    <td class="py-0.5 text-center text-black">${item.price.toFixed(2)}</td>
+                    <td class="py-0.5 text-left font-bold text-black">${(item.price * item.qty).toFixed(2)}</td>
+                `;
+                itemsTbody.appendChild(tr);
+            });
+
+            document.getElementById('receipt-subtotal').innerText = `${sale.subtotal.toFixed(2)} ${settings.currency}`;
+            document.getElementById('receipt-discount').innerText = `${sale.discount.toFixed(2)} ${settings.currency}`;
+            document.getElementById('receipt-grandtotal').innerText = `${sale.grandTotal.toFixed(2)} ${settings.currency}`;
+
+            document.getElementById('printable-area-wrapper').innerHTML = document.getElementById('receipt-paper').innerHTML;
+            document.getElementById('receipt-modal').classList.remove('hidden');
+        }
+
+        function closeReceiptModal() {
+            document.getElementById('receipt-modal').classList.add('hidden');
+            clearCart();
+        }
+
+        function triggerDirectPrint() {
+            document.getElementById('printable-area-wrapper').innerHTML = document.getElementById('receipt-paper').innerHTML;
+            window.print();
+            closeReceiptModal();
+        }
+
+        function updateHistoryUI() {
+            document.getElementById('history-count').innerText = historySales.length;
+            const tbody = document.getElementById('history-table-body');
+            const emptyMsg = document.getElementById('empty-history-msg');
+            tbody.innerHTML = '';
+
+            let totalSum = 0;
+
+            if (historySales.length === 0) {
+                emptyMsg.classList.remove('hidden');
+            } else {
+                emptyMsg.classList.add('hidden');
+                historySales.forEach(sale => {
+                    totalSum += sale.grandTotal;
+                    const tr = document.createElement('tr');
+                    tr.className = "border-b border-slate-100";
+                    tr.innerHTML = `
+                        <td class="p-2 font-extrabold text-amber-600">#${sale.queueNo || '---'}</td>
+                        <td class="p-2 font-bold text-indigo-700">${sale.id}</td>
+                        <td class="p-2 text-slate-500 text-[10px]">${sale.date}</td>
+                        <td class="p-2 truncate max-w-[70px]">${sale.customer}</td>
+                        <td class="p-2 font-bold text-slate-800">${sale.grandTotal.toFixed(2)}</td>
+                        <td class="p-2 text-center">
+                            <button onclick='reprintHistorySale("${sale.id}")' class="px-1.5 py-1 bg-indigo-50 text-indigo-600 rounded text-[11px]">
+                                <i class="fa-solid fa-print"></i>
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+
+            document.getElementById('history-total-sum').innerText = `${totalSum.toFixed(2)} ${settings.currency}`;
+        }
+
+        function reprintHistorySale(id) {
+            const sale = historySales.find(s => s.id === id);
+            if (sale) {
+                openReceiptPreview(sale);
+            }
+        }
+
+        function clearAllHistory() {
+            if (confirm("هل تريد مسح سجل المبيعات؟")) {
+                historySales = [];
+                currentQueueNumber = 1;
+                saveToLocalStorage();
+                updateHistoryUI();
+                updateQueueBadge();
+                showToast("تم إخلاء السجل");
+            }
+        }
+
+        function switchTab(tab) {
+            const posView = document.getElementById('pos-view');
+            const historyView = document.getElementById('history-view');
+            const posBtn = document.getElementById('tab-pos-btn');
+            const historyBtn = document.getElementById('tab-history-btn');
+
+            if (tab === 'pos') {
+                posView.classList.remove('hidden');
+                historyView.classList.add('hidden');
+                posBtn.className = "px-2.5 py-1.5 rounded-md bg-indigo-950 text-white font-medium transition flex items-center gap-1 text-xs";
+                historyBtn.className = "px-2.5 py-1.5 rounded-md bg-indigo-600 text-indigo-100 font-medium transition flex items-center gap-1 text-xs";
+            } else {
+                posView.classList.add('hidden');
+                historyView.classList.remove('hidden');
+                historyBtn.className = "px-2.5 py-1.5 rounded-md bg-indigo-950 text-white font-medium transition flex items-center gap-1 text-xs";
+                posBtn.className = "px-2.5 py-1.5 rounded-md bg-indigo-600 text-indigo-100 font-medium transition flex items-center gap-1 text-xs";
+            }
+        }
+
+        function openSettingsModal() {
+            document.getElementById('setting-store-name').value = settings.storeName;
+            document.getElementById('setting-store-sub').value = settings.storeSub;
+            document.getElementById('setting-currency').value = settings.currency;
+            document.getElementById('setting-footer-msg').value = settings.footerMsg;
+            document.getElementById('settings-modal').classList.remove('hidden');
+        }
+
+        function closeSettingsModal() {
+            document.getElementById('settings-modal').classList.add('hidden');
+        }
+
+        function saveSettings(e) {
+            e.preventDefault();
+            settings.storeName = document.getElementById('setting-store-name').value.trim();
+            settings.storeSub = document.getElementById('setting-store-sub').value.trim();
+            settings.currency = document.getElementById('setting-currency').value.trim();
+            settings.footerMsg = document.getElementById('setting-footer-msg').value.trim();
+
+            saveToLocalStorage();
+            updateSettingsUI();
+            closeSettingsModal();
+            renderCart();
+            renderQuickProducts();
+            showToast("تم الحفظ");
+        }
+
+        function updateSettingsUI() {
+            document.getElementById('header-store-name').innerText = settings.storeName;
+        }
+
+        function openQuickProductModal() {
+            renderQuickProductsTable();
+            document.getElementById('quick-products-modal').classList.remove('hidden');
+        }
+
+        function closeQuickProductModal() {
+            document.getElementById('quick-products-modal').classList.add('hidden');
+        }
+
+        function addQuickProduct(e) {
+            e.preventDefault();
+            const nameInput = document.getElementById('qp-name');
+            const priceInput = document.getElementById('qp-price');
+
+            const name = nameInput.value.trim();
+            const price = parseFloat(priceInput.value);
+
+            if (name && !isNaN(price)) {
+                quickProducts.push({
+                    id: Date.now(),
+                    name: name,
+                    price: price
+                });
+                saveToLocalStorage();
+                renderQuickProducts();
+                renderQuickProductsTable();
+                nameInput.value = '';
+                priceInput.value = '';
+                showToast("تمت الإضافة");
+            }
+        }
+
+        function removeQuickProduct(id) {
+            quickProducts = quickProducts.filter(p => p.id !== id);
+            saveToLocalStorage();
+            renderQuickProducts();
+            renderQuickProductsTable();
+        }
+
+        function renderQuickProductsTable() {
+            const tbody = document.getElementById('quick-products-table-body');
+            tbody.innerHTML = '';
+            quickProducts.forEach(prod => {
+                const tr = document.createElement('tr');
+                tr.className = "border-b border-slate-100";
+                tr.innerHTML = `
+                    <td class="p-1.5 font-medium">${prod.name}</td>
+                    <td class="p-1.5">${prod.price.toFixed(2)} ${settings.currency}</td>
+                    <td class="p-1.5 text-center">
+                        <button onclick="removeQuickProduct(${prod.id})" class="text-red-500 hover:text-red-700">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function showToast(message, isError = false) {
+            const toast = document.getElementById('toast');
+            const toastMsg = document.getElementById('toast-message');
+            const toastIcon = document.getElementById('toast-icon');
+
+            toastMsg.innerText = message;
+            if (isError) {
+                toastIcon.className = "fa-solid fa-circle-exclamation text-red-400";
+            } else {
+                toastIcon.className = "fa-solid fa-circle-check text-emerald-400";
+            }
+
+            toast.classList.remove('opacity-0', 'pointer-events-none');
+            toast.classList.add('opacity-100');
+
+            setTimeout(() => {
+                toast.classList.remove('opacity-100');
+                toast.classList.add('opacity-0', 'pointer-events-none');
+            }, 2500);
+        }
+    </script>
+</body>
+</html>
